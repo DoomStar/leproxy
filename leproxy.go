@@ -22,6 +22,8 @@ import (
 	"github.com/artyom/autoflags"
 	"golang.org/x/crypto/acme/autocert"
 	"gopkg.in/yaml.v2"
+
+	"crypto/tls"
 )
 
 func main() {
@@ -124,6 +126,7 @@ func setProxy(mapping map[string]string) (http.Handler, error) {
 	if len(mapping) == 0 {
 		return nil, fmt.Errorf("empty mapping")
 	}
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	mux := http.NewServeMux()
 	for hostname, backendAddr := range mapping {
 		hostname, backendAddr := hostname, backendAddr // intentional shadowing
@@ -154,13 +157,20 @@ func setProxy(mapping map[string]string) (http.Handler, error) {
 				continue
 			}
 		}
+		host, port, _ := net.SplitHostPort(backendAddr)
 		rp := &httputil.ReverseProxy{
 			Director: func(req *http.Request) {
-				req.URL.Scheme = "http"
-				req.URL.Host = req.Host
+				if port == "443" {
+					req.URL.Scheme = "https"
+				} else {
+					req.URL.Scheme = "http"
+				}
+				req.URL.Host = host
+				req.Host = host
 				req.Header.Set("X-Forwarded-Proto", "https")
 			},
 			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 				Dial: func(netw, addr string) (net.Conn, error) {
 					return net.DialTimeout(network, backendAddr, 5*time.Second)
 				},
